@@ -1,70 +1,144 @@
-# Lokala fynd – CRUD-demo för ICA-erbjudanden
+# Lokala fynd – TypeScript + Python + Apache
 
-En liten, ramverksfri PHP-applikation där besökaren väljer en ICA-butik och ser erbjudanden som hör till just den platsen. Appen är byggd efter samma enkla modell som projektet i `example/`, men använder SQLite i stället för PostgreSQL och har full CRUD för både butiker och erbjudanden.
+En CRUD-demo för lokala ICA-erbjudanden. Frontend är skriven i TypeScript och byggs till statiska, native ES-moduler. Python/Flask tillhandahåller ett JSON-API, använder SQLite och hämtar publika butiks- och produktdata från ICA:s webbshop. Apache är den publika webbservern: den serverar frontend och reverse-proxyar `/api` till Gunicorn.
 
-SQLite är en inbäddad databas, inte en separat databasserver: Apache/PHP-processen läser och skriver direkt i `data/deals.sqlite`. Det gör demon enkel att flytta och driftsätta utan ytterligare tjänster.
+> Projektet är fristående och är inte anslutet till eller godkänt av ICA. ICA:s webbgränssnitt är odokumenterade och kan ändras. Använd integrationen varsamt och i enlighet med ICA:s villkor.
 
-> **Viktigt:** Projektet är en fristående demo och är inte anslutet till, godkänt av eller supportat av ICA. ICA erbjuder inget dokumenterat publikt utvecklar-API för dessa data. Integrationen använder odokumenterade JSON-anrop från ICA:s publika butikssökning/webbshop och kan därför sluta fungera utan förvarning.
-<>
+## Arkitektur
+
+```text
+Webbläsare
+    │
+    ▼
+Apache :80
+    ├── /, /assets/*  ──► frontend/dist (TypeScript/Vite)
+    └── /api/*        ──► Gunicorn :8000 ──► Flask ──► SQLite
+                                                  └──► ICA:s publika webbtjänster
+```
+
+Apache kör alltså inte TypeScript eller Python direkt. TypeScript kompileras till JavaScript som Apache kan servera, och Python körs som en lokal WSGI-tjänst bakom Apaches proxy. Det är en vanlig och stabil produktionsmodell.
+
 ## Funktioner
 
-- välj en butik och visa alla lokalt sparade, aktuella erbjudanden för platsen;
-- sök bland varor, varumärken och kampanjtexter;
-- skapa, läsa, uppdatera och radera butiker;
-- skapa, läsa, uppdatera och radera erbjudanden;
-- hitta verkliga ICA-butiker via svenskt postnummer;
-- synka kampanjmärkta produkter från en butiks webbshopskatalog;
-- automatisk databasinitiering och tydligt märkt demodata;
-- responsivt gränssnitt, förberedda SQL-frågor, CSRF-skydd och POST för alla ändringar.
+- välj butik och visa dess lokalt sparade erbjudanden;
+- full CRUD för butiker och erbjudanden via ett REST-API;
+- sökning och filtrering av erbjudanden;
+- verklig ICA-butikssökning via svenskt postnummer;
+- synkning av butiksspecifika kampanjvaror;
+- importhistorik och tydliga upstream-fel;
+- SQLite med främmande nycklar, cascade delete och idempotent ICA-upsert;
+- responsiv TypeScript-SPA utan frontendramverk;
+- Apache-konfiguration och systemd-tjänst för Python-API:t.
 
-## Krav
+## Projektstruktur
 
-- Apache 2.4 med `AllowOverride All` (för `.htaccess`);
-- PHP 8.1 eller senare;
-- PHP-tillägget `pdo_sqlite`;
-- helst PHP-tillägget `curl` för ICA-synk. Appen kan falla tillbaka till HTTPS-strömmar om `allow_url_fopen` är aktiverat.
+```text
+backend/
+  app.py                 Flask REST-API och CRUD
+  database.py            SQLite-anslutning, migration och demodata
+  ica.py                 ICA-session, sökning, CSRF och normalisering
+  requirements.txt       Python-beroenden
+  tests/                  API- och ICA-parsertester
+  wsgi.py                 Gunicorn-entrypoint
+database/schema.sql       Databasschema
+deploy/
+  apache-lokala-fynd.conf Apache VirtualHost
+  lokala-fynd-api.service systemd unit för Gunicorn
+frontend/
+  src/                    TypeScript, API-klient och CSS
+  scripts/build.mjs       Kopierar statiska resurser utan bundler
+  public/.htaccess        SPA fallback och säkerhetsheaders
+  dist/                   Native ES-moduler, genereras med npm run build
+data/                     SQLite-filen skapas här
+```
+
+## Lokal utveckling
+
+Krav: Python 3.11+, Node.js 18+ och npm.
+
+### 1. Bygg TypeScript-frontend
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+Bygget använder endast TypeScript-kompilatorn och genererar native ES-moduler. Vite/Webpack behövs inte.
+
+### 2. Starta Python-API:t
+
+```bash
+cd backend
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python app.py
+```
+
+API:t kör nu på `http://127.0.0.1:8000`. Öppna samma adress i webbläsaren; Flask serverar den byggda frontend-versionen lokalt. SQLite-filen och demodata skapas automatiskt vid första start.
+
+## Driftsättning på Apache
+
+Exemplet antar att projektet ligger i `/var/www/lokala-fynd`.
+
+### Paket
 
 På Ubuntu/Debian:
 
 ```bash
 sudo apt update
-sudo apt install apache2 libapache2-mod-php php-sqlite3 php-curl
-sudo a2enmod headers
-sudo systemctl restart apache2
+sudo apt install apache2 python3-venv nodejs npm
+sudo a2enmod proxy proxy_http rewrite headers
 ```
 
-## Köra med Apache
+`mod_wsgi` behövs inte; Apache pratar HTTP med Gunicorn på localhost.
 
-1. Lägg projektmappen under Apaches document root, exempelvis `/var/www/html/lokala-fynd`.
-2. Ge webbservern skrivrättighet till enbart `data/`:
-
-   ```bash
-   sudo chown -R www-data:www-data /var/www/html/lokala-fynd/data
-   sudo chmod 775 /var/www/html/lokala-fynd/data
-   ```
-
-3. Kontrollera att aktuell `<Directory>` i Apache-konfigurationen tillåter `.htaccess`:
-
-   ```apache
-   <Directory /var/www/html/lokala-fynd>
-       AllowOverride All
-       Require all granted
-   </Directory>
-   ```
-
-4. Öppna `http://localhost/lokala-fynd/`. Filen `data/deals.sqlite` skapas och fylls med demodata vid första anropet.
-
-För en snabb lokal kontroll kan PHP:s inbyggda server också användas:
+### Bygg och installera
 
 ```bash
-php -S 127.0.0.1:8080
+cd /var/www/lokala-fynd/frontend
+npm install
+npm run build
+
+cd /var/www/lokala-fynd/backend
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+
+sudo chown -R www-data:www-data /var/www/lokala-fynd/data
+sudo chmod 775 /var/www/lokala-fynd/data
 ```
 
-Öppna därefter `http://127.0.0.1:8080`. Apache är fortfarande rekommenderat för den avsedda driftsmiljön eftersom `.htaccess` inte används av den inbyggda servern.
+### Starta API-tjänsten
+
+```bash
+sudo cp /var/www/lokala-fynd/deploy/lokala-fynd-api.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now lokala-fynd-api
+curl http://127.0.0.1:8000/api/health
+```
+
+Svaret ska likna:
+
+```json
+{"database":"sqlite","deals":3,"status":"ok","stores":3}
+```
+
+### Aktivera Apache
+
+Ändra `ServerName` och sökvägar i `deploy/apache-lokala-fynd.conf` om det behövs. Aktivera sedan sajten:
+
+```bash
+sudo cp /var/www/lokala-fynd/deploy/apache-lokala-fynd.conf /etc/apache2/sites-available/lokala-fynd.conf
+sudo a2ensite lokala-fynd
+sudo apache2ctl configtest
+sudo systemctl reload apache2
+```
+
+Apache serverar nu frontend och vidarebefordrar alla `/api`-anrop till Python. Lägg till TLS med till exempel Certbot innan publik drift.
 
 ## Databasschema
 
-Schemat finns i [`database/schema.sql`](database/schema.sql). SQLite-filen skapas automatiskt och migreringen är idempotent (`CREATE TABLE IF NOT EXISTS`).
+SQLite är inbäddat i Python-processen; ingen separat databasserver behövs.
 
 ```text
 stores 1 ──────── * deals
@@ -74,80 +148,89 @@ stores 1 ──────── * deals
 
 ### `stores`
 
-En rad per fysisk butik/plats.
-
 | Kolumn | Innehåll |
 |---|---|
-| `id` | Lokal heltalsnyckel. Används av appens relationer. |
-| `ica_store_id` | ICA-butikssökningens `id`; unikt när det finns. |
-| `account_id` | Webbshopens `accountId`. Behövs för det butiksspecifika produktanropet. |
-| `name`, `store_format` | Visningsnamn och format, till exempel `maxi` eller `kvantum`. |
-| `street`, `postcode`, `city` | Adressfält för presentation och sökning. |
-| `latitude`, `longitude` | Valfri position från ICA:s butikssökning. |
-| `created_at`, `updated_at` | Lokala tidsstämplar. |
+| `id` | Lokal primärnyckel. |
+| `ica_store_id` | Fältet `id` från ICA:s butikssökning. |
+| `account_id` | Fältet `accountId`, som väljer rätt onlinekatalog. |
+| `name`, `store_format` | Butiksnamn och format. |
+| `street`, `postcode`, `city` | Adress. |
+| `latitude`, `longitude` | Valfri position från ICA. |
 
-`ica_store_id` och `account_id` hålls isär eftersom de representerar olika identiteter i ICA:s webbtjänster. Den första identifierar butiksplatsen, medan den andra väljer sortimentet i onlinebutiken.
+ICA:s `id` och `accountId` är olika identiteter och lagras därför separat.
 
 ### `deals`
 
-En rad per erbjudande i en butik. `store_id` är en främmande nyckel till `stores.id` med `ON DELETE CASCADE`, så erbjudanden försvinner när butiken tas bort.
-
 | Kolumn | Innehåll |
 |---|---|
-| `external_id` | Produkt-id från ICA eller en stabil lokalt genererad nyckel. Unikt per butik när det finns. |
-| `product_name`, `brand`, `description` | Produktens textfält. |
-| `deal_price`, `regular_price` | Numeriska priser som kan användas för beräkningar. |
-| `price_text` | Kampanjpris som inte alltid är ett enkelt tal, exempelvis “2 för 50 kr”. |
-| `quantity_text`, `promotion_text` | Förpackningsstorlek och kampanjvillkor. |
-| `image_url`, `product_url` | Valfria externa länkar; inga bilder laddas ned till databasen. |
-| `valid_from`, `valid_to` | ISO-datum (`YYYY-MM-DD`) eller `NULL`. |
-| `source` | `manual`, `ica_api` eller `demo`. |
-| `synced_at` | Senaste lyckade uppdatering från ICA. |
+| `store_id` | Främmande nyckel till `stores`; `ON DELETE CASCADE`. |
+| `external_id` | ICA:s UUID eller en lokal identifierare; unik per butik när den finns. |
+| `product_name`, `brand`, `description` | Produktinformation. |
+| `deal_price`, `regular_price`, `price_text` | Numeriska priser samt text för multiköp. |
+| `quantity_text`, `promotion_text` | Storlek och kampanjvillkor. |
+| `category`, `country_of_origin` | Kategori och ursprungsland från produktobjektet. |
+| `image_url`, `product_url` | Externa HTTPS-länkar. |
+| `valid_from`, `valid_to` | ISO-datum eller `NULL`. |
+| `source` | `manual`, `demo` eller `ica_api`. |
+| `synced_at` | Senaste ICA-uppdatering. |
 
-Den partiella unika indexeringen på `(store_id, external_id)` gör synkningen idempotent: samma ICA-produkt uppdateras i stället för att dupliceras. Manuella rader kan sakna `external_id` och påverkas inte av synkningen.
+En partiell unik indexering på `(store_id, external_id)` gör synkningen idempotent. Manuella erbjudanden påverkas inte när ICA-data uppdateras.
 
 ### `import_runs`
 
-En enkel revisionslogg för erbjudandesynkningar. Den lagrar butik, status, antal importerade poster, meddelande och tidpunkt. Om en butik raderas sätts `store_id` till `NULL`, så historikraden kan finnas kvar.
+Loggar lyckade och misslyckade synkningar med butik, antal poster, meddelande och tidpunkt.
 
-## ICA-data och synkflöde
+## ICA-integrationen
 
-Projektet använder två odokumenterade, publikt åtkomliga webbgränssnitt:
+Integrationen använder publika anrop från ICA:s egna webbgränssnitt:
 
-1. `GET https://handla.ica.se/api/store/v1?zip=...&customerType=B2C` hittar onlineanslutna butiker nära ett postnummer. Svaret ger bland annat `id`, `accountId`, adress och koordinater.
-2. `GET https://handlaprivatkund.ica.se/stores/{accountId}/api/webproductpagews/v6/product-pages/search` söker i den valda butikens katalog. Appen sparar bara svar som innehåller kampanjinformation.
+1. `GET https://handla.ica.se/api/store/v1?zip=...&customerType=B2C` returnerar närliggande onlinebutiker.
+2. Butikssidan `GET /stores/{accountId}/products` innehåller initial state med CSRF-token och `productEntities`.
+3. `GET /stores/{accountId}/api/webproductpagews/v6/product-pages/search` returnerar produktgrupper och UUID:n för ett sökord.
+4. `PUT /stores/{accountId}/api/webproductpagews/v6/products` hämtar full produktinformation i batch. Python-sessionen skickar cookie, `Origin`, `Referer`, fetch-headers och den aktuella CSRF-token.
 
-Produktgränssnittet är sökbaserat, så “synka” söker med en redigerbar lista av breda svenska varuord. Resultatet är därför de kampanjvaror som hittas av dessa sökningar, inte en garanterat komplett kampanjkatalog. Lägg till relevanta sökord på synksidan för större täckning. Som skydd gör sidan högst tolv API-anrop per synkning.
+Det sista steget är varför integrationen fungerar bättre än den tidigare PHP-versionen: ett naket serveranrop får ofta HTTP 403, medan webbshopens faktiska request context accepteras. Server-renderade `productEntities` används dessutom som fallback och ger kampanjer även om batchanropet tillfälligt blockeras.
 
-Den välkända äldre community-dokumentationen för `handla.api.ica.se` markerades som inaktuell efter ICA:s ändringar den 17 april 2024. Därför använder den här demon inte den gamla Basic Auth-/`AuthenticationTicket`-lösningen. Se [svendahlstrand/ica-api](https://github.com/svendahlstrand/ica-api) för historiken och en [beskrivning av den nuvarande publika butikskatalogen](https://apify.com/studio-amba/ica-scraper) för den response shape som importern tolererar.
+En produkt importeras som erbjudande när den har minst ett `offer`/`offers`-objekt eller när `price.current` är lägre än `price.original`. ICA:s multiköp, till exempel “2 för 50 kr”, bevaras i `promotion_text`.
 
-ICA kan svara med exempelvis HTTP 403 beroende på nätverk, region, belastning eller framtida ändringar. Appen behåller då befintliga lokala data och skriver felet till `import_runs`. Det gör att CRUD-demon fortsätter fungera offline.
+ICA kan fortfarande visa en AWS WAF-kontroll vid många eller täta anrop. API:t returnerar då ett begripligt 502-fel och skriver en misslyckad rad i `import_runs`; befintliga erbjudanden raderas aldrig. Högst tolv sökord används per manuell synkning.
 
-## Projektstruktur
+Den äldre community-dokumentationen för `handla.api.ica.se` är [markerad som inaktuell sedan april 2024](https://github.com/svendahlstrand/ica-api). Den nuvarande butiksspecifika katalogen och fälten är även beskrivna av den oberoende [ICA storefront-scrapern](https://apify.com/studio-amba/ica-scraper).
 
-```text
-assets/              CSS, JavaScript och favicon
-data/                SQLite-fil vid körning; blockerad av .htaccess
-database/schema.sql  Normaliserat SQLite-schema
-partials/            Gemensam sidheader och footer
-action.php           Alla lokala create/update/delete-operationer
-ica_client.php       ICA HTTP-klient, normalisering och upsert
-index.php            Butiksval och läsning av erbjudanden
-manage.php           CRUD-översikt
-store_form.php       Skapa/uppdatera butik
-deal_form.php        Skapa/uppdatera erbjudande
-sync.php             Butikssökning, import och synkhistorik
+## REST-API
+
+| Metod | Endpoint | Funktion |
+|---|---|---|
+| `GET` | `/api/health` | Hälsa och postantal. |
+| `GET/POST` | `/api/stores` | Lista eller skapa butik. |
+| `GET/PUT/DELETE` | `/api/stores/{id}` | Läs, uppdatera eller radera butik. |
+| `GET/POST` | `/api/deals` | Filtrera eller skapa erbjudande. |
+| `GET/PUT/DELETE` | `/api/deals/{id}` | Läs, uppdatera eller radera erbjudande. |
+| `GET` | `/api/ica/stores?postcode=11122` | Sök butiker hos ICA. |
+| `POST` | `/api/ica/stores/import` | Importera/uppdatera hittad butik. |
+| `POST` | `/api/stores/{id}/sync` | Synka butikens kampanjvaror. |
+| `GET` | `/api/import-runs` | Visa synkhistorik. |
+
+Skrivande endpoints kräver JSON och svarar med JSON-fel. Databasen använder parametriserade frågor och frontend renderar all extern text HTML-kodad.
+
+Det finns inga användarkonton i demon. Innan en publik driftsättning bör `/api` och administrationsvyerna skyddas med autentisering, till exempel Apaches OIDC/basic auth eller en applikationsinloggning. Utan detta kan alla som når webbplatsen ändra data.
+
+## Tester
+
+```bash
+cd backend
+.venv/bin/python -m unittest discover -s tests -v
+
+cd ../frontend
+npm run build
 ```
 
-## Säkerhetsanteckningar
+Backendtesterna använder en temporär SQLite-fil och mockar ICA för deterministisk CRUD-/synkverifiering. Den verkliga butikssökningen kan kontrolleras med:
 
-- Alla databasvärden skrivs med PDO prepared statements.
-- Alla HTML-värden kodas med `htmlspecialchars`.
-- Alla skrivoperationer kräver POST och en sessionsbunden CSRF-token.
-- SQLite-filen, konfigurationen och källfiler med anslutningslogik blockeras i `.htaccess`.
-- ICA-URL:ernas värd är hårdkodad; användaren kan inte välja en godtycklig upstream-värd.
-- Detta är fortfarande en demo utan användarkonton. Lägg autentisering och behörighetskontroll framför administrations- och synksidorna innan publik drift.
+```bash
+curl 'http://127.0.0.1:8000/api/ica/stores?postcode=11122'
+```
 
-## Återställa demon
+## Återställa demodata
 
-Ta bort `data/deals.sqlite` när webbservern är stoppad. Nästa anrop skapar databasen och demoposterna på nytt. Gör först en kopia om data ska bevaras.
+Stoppa API-tjänsten, säkerhetskopiera vid behov och ta bort `data/deals.sqlite`. Nästa start skapar schema och demoposter igen.

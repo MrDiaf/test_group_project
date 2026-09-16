@@ -2,3 +2,9 @@ example
 /data/*.sqlite
 /data/*.sqlite-*
 /.env
+/frontend/node_modules/
+/frontend/dist/
+/backend/.venv/
+/backend/__pycache__/
+/backend/**/__pycache__/
+/.pytest_cache/

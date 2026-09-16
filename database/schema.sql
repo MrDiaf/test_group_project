@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS deals (
     price_text TEXT NOT NULL DEFAULT '',
     quantity_text TEXT NOT NULL DEFAULT '',
     promotion_text TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
+    country_of_origin TEXT NOT NULL DEFAULT '',
     image_url TEXT,
     product_url TEXT,
     valid_from TEXT,

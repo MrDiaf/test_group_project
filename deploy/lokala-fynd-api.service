@@ -1,0 +1,17 @@
+[Unit]
+Description=Lokala fynd Python API
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/lokala-fynd/backend
+Environment=DEALS_DB_PATH=/var/www/lokala-fynd/data/deals.sqlite
+ExecStart=/var/www/lokala-fynd/backend/.venv/bin/gunicorn --workers 2 --bind 127.0.0.1:8000 --access-logfile - wsgi:app
+Restart=on-failure
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
