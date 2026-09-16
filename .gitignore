@@ -8,3 +8,4 @@ example
 /backend/__pycache__/
 /backend/**/__pycache__/
 /.pytest_cache/
+/.run/

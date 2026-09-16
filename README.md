@@ -56,6 +56,20 @@ data/                     SQLite-filen skapas här
 
 Krav: Python 3.11+, Node.js 18+ och npm.
 
+Det enklaste sättet att installera, bygga och starta båda processerna är:
+
+```bash
+make start
+```
+
+Öppna `http://127.0.0.1:5173`. Avsluta båda processerna med:
+
+```bash
+make stop
+```
+
+`make status` visar om processerna kör och `make logs` följer båda loggfilerna. Makefile-målen beskrivs även med `make help`.
+
 ### 1. Bygg TypeScript-frontend
 
 ```bash
