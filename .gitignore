@@ -1,1 +1,4 @@
 example
+/data/*.sqlite
+/data/*.sqlite-*
+/.env
