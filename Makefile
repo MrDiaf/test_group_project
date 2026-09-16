@@ -10,6 +10,8 @@ BACKEND_PID := $(RUN_DIR)/backend.pid
 FRONTEND_PID := $(RUN_DIR)/frontend.pid
 BACKEND_LOG := $(RUN_DIR)/backend.log
 FRONTEND_LOG := $(RUN_DIR)/frontend.log
+BACKEND_HOST ?= 127.0.0.1
+FRONTEND_HOST ?= 0.0.0.0
 BACKEND_URL := http://127.0.0.1:8000
 FRONTEND_URL := http://127.0.0.1:5173
 
@@ -53,9 +55,9 @@ start: setup build
 	@if [[ -f "$(BACKEND_PID)" ]] && kill -0 "$$(cat "$(BACKEND_PID)")" 2>/dev/null; then \
 		echo "Backend is already running (PID $$(cat "$(BACKEND_PID)"))."; \
 	else \
-		echo "Starting Python backend on $(BACKEND_URL)..."; \
+		echo "Starting Python backend on $(BACKEND_HOST):8000..."; \
 		cd "$(ROOT)"; \
-		nohup "$(GUNICORN)" --workers 1 --bind 127.0.0.1:8000 --chdir backend --access-logfile - wsgi:app >"$(BACKEND_LOG)" 2>&1 & \
+		nohup "$(GUNICORN)" --workers 1 --bind "$(BACKEND_HOST):8000" --chdir backend --access-logfile - wsgi:app >"$(BACKEND_LOG)" 2>&1 & \
 		echo $$! >"$(BACKEND_PID)"; \
 	fi
 	@for attempt in $$(seq 1 40); do \
@@ -71,9 +73,9 @@ start: setup build
 	@if [[ -f "$(FRONTEND_PID)" ]] && kill -0 "$$(cat "$(FRONTEND_PID)")" 2>/dev/null; then \
 		echo "Frontend is already running (PID $$(cat "$(FRONTEND_PID)"))."; \
 	else \
-		echo "Starting frontend on $(FRONTEND_URL)..."; \
+		echo "Starting frontend on $(FRONTEND_HOST):5173..."; \
 		cd "$(ROOT)"; \
-		nohup "$(PYTHON)" frontend/dev_server.py --host 127.0.0.1 --port 5173 --directory frontend/dist --api-url "$(BACKEND_URL)" >"$(FRONTEND_LOG)" 2>&1 & \
+		nohup "$(PYTHON)" frontend/dev_server.py --host "$(FRONTEND_HOST)" --port 5173 --directory frontend/dist --api-url "$(BACKEND_URL)" >"$(FRONTEND_LOG)" 2>&1 & \
 		echo $$! >"$(FRONTEND_PID)"; \
 	fi
 	@for attempt in $$(seq 1 40); do \
@@ -87,7 +89,9 @@ start: setup build
 		sleep 0.25; \
 	done
 	@echo
-	@echo "Lokala fynd is running: $(FRONTEND_URL)"
+	@lan_ip="$$(hostname -I 2>/dev/null | awk '{print $$1}')"; \
+	echo "Lokala fynd is running locally: $(FRONTEND_URL)"; \
+	if [[ -n "$$lan_ip" ]]; then echo "Available on your network:       http://$$lan_ip:5173"; fi
 	@echo "Backend API:             $(BACKEND_URL)/api/health"
 	@echo "Run 'make stop' to shut everything down."
 
@@ -126,7 +130,7 @@ status:
 		fi; \
 	}; \
 	show_service "backend" "$(BACKEND_PID)" "$(BACKEND_URL)"; \
-	show_service "frontend" "$(FRONTEND_PID)" "$(FRONTEND_URL)"
+	show_service "frontend" "$(FRONTEND_PID)" "$(FRONTEND_URL) (network bind: $(FRONTEND_HOST):5173)"
 
 logs:
 	@mkdir -p "$(RUN_DIR)"

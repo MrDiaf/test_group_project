@@ -62,13 +62,36 @@ Det enklaste sättet att installera, bygga och starta båda processerna är:
 make start
 ```
 
-Öppna `http://127.0.0.1:5173`. Avsluta båda processerna med:
+Öppna `http://127.0.0.1:5173` lokalt. Frontendservern lyssnar som standard på `0.0.0.0`, så andra datorer på samma nätverk använder:
+
+```text
+http://DIN-SERVER-IP:5173
+```
+
+`make start` skriver ut den första lokala nätverksadressen automatiskt. API:t ligger kvar på loopback och nås av nätverksklienter säkert genom frontendservern på `http://DIN-SERVER-IP:5173/api/...`.
+
+Avsluta båda processerna med:
 
 ```bash
 make stop
 ```
 
 `make status` visar om processerna kör och `make logs` följer båda loggfilerna. Makefile-målen beskrivs även med `make help`.
+
+Bind-adresserna kan ändras vid start:
+
+```bash
+# Standard: frontend nåbar på nätverket, backend endast lokalt
+make start
+
+# Exponera även backend-API:t direkt på port 8000
+make start BACKEND_HOST=0.0.0.0
+
+# Begränsa allt till den egna datorn igen
+make start FRONTEND_HOST=127.0.0.1
+```
+
+Om en brandvägg används behöver TCP-port 5173 tillåtas från det lokala nätverket. Exponera inte utvecklingsservern direkt mot internet; använd Apache-konfigurationen och HTTPS för publik drift.
 
 ### 1. Bygg TypeScript-frontend
 
